@@ -1,0 +1,156 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'edu.sc.seis.launch4j' version '2.5.4'
+}
+
+group = 'com.javacompileride'
+version = '1.0.0'
+sourceCompatibility = '21'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.fifesoft:rsyntaxtextarea:3.3.4'
+    implementation 'com.formdev:flatlaf:3.2.1'
+}
+
+application {
+    mainClass = 'com.javacompileride.Main'
+}
+
+// 确保编译和运行都使用 UTF-8 编码
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-encoding', 'utf8']
+}
+
+tasks.withType(Test).configureEach {
+    systemProperty "file.encoding", "UTF-8"
+}
+
+run {
+    systemProperty "file.encoding", "UTF-8"
+}
+
+jar {
+    manifest {
+        attributes(
+                'Main-Class': 'com.javacompileride.Main',
+                'Implementation-Version': version
+        )
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// 修复 Launch4j 配置 - 使用正确的属性名
+launch4j {
+    mainClassName = 'com.javacompileride.Main'
+    outfile = 'JavaCompilerIDE.exe'
+    productName = 'Java Compiler IDE'
+    fileDescription = 'Java Development Environment with Bundled JDK'
+    copyright = '2024 Java Compiler IDE'
+    companyName = 'JavaCompilerIDE'
+    version = project.version
+    textVersion = project.version
+    language = 'ENGLISH_US'
+
+    icon = "${projectDir}/app.ico"
+
+    // 修复：使用正确的属性名配置捆绑的 JDK
+    bundledJrePath = "jdk"
+    jreMinVersion = "21"
+    jreMaxVersion = "21.0.9"
+    jdkPreference = 'preferJre'
+    maxHeapSize = 512
+
+    // 修复：使用正确的 JVM 选项配置
+    jvmOptions = [
+            '-Xmx512m',
+            '-Dfile.encoding=UTF-8',
+            '-Duser.language=zh',
+            '-Duser.country=CN'
+    ]
+
+    stayAlive = false
+    jarTask = project.tasks.jar
+}
+
+// 创建任务来复制 JDK
+tasks.register('copyJdk', Copy) {
+    from 'C:/Program Files/Java/jdk-21'  // 修改为您的 JDK 路径
+    into 'build/launch4j/jdk'
+    include 'bin/**'
+    include 'conf/**'
+    include 'include/**'
+    include 'jmods/**'
+    include 'legal/**'
+    include 'lib/**'
+    include 'release'
+    exclude '**/*.pdb'
+    exclude '**/man/**'
+
+    // 添加复制完成后的消息
+    doLast {
+        println "JDK 复制完成: ${destinationDir}"
+    }
+}
+
+// 确保在创建 exe 之前复制 JDK
+tasks.createExe.dependsOn tasks.named('copyJdk')
+tasks.createExe.dependsOn jar
+
+tasks.register('buildExe') {
+    dependsOn 'createExe'
+    group = 'Build'
+    description = 'Builds the executable file with bundled JDK'
+}
+
+// 创建完整分发包
+tasks.register('dist', Zip) {
+    dependsOn buildExe
+    archiveFileName = "JavaCompilerIDE-${version}-with-jdk.zip"
+    destinationDirectory = file("build/distributions")
+
+    from('build/launch4j') {
+        include 'JavaCompilerIDE.exe'
+        include 'jdk/**'
+    }
+
+    from('examples') {
+        into 'examples'
+        include '**/*.java'
+    }
+
+    from('README.md') {
+        into '.'
+    }
+
+    doLast {
+        println "分发包创建完成: ${archiveFile.get()}"
+    }
+}
+
+// 创建完整的构建任务
+tasks.register('fullBuild') {
+    dependsOn 'clean', 'build', 'copyJdk', 'createExe', 'dist'
+    group = 'Build'
+    description = 'Complete build including JDK bundling and distribution'
+}
+
+// 添加构建信息任务
+tasks.register('buildInfo') {
+    doLast {
+        println "=== Java Compiler IDE 构建信息 ==="
+        println "版本: ${version}"
+        println "JDK: ${sourceCompatibility}"
+        println "主类: ${application.mainClass.get()}"
+        println "输出文件: build/launch4j/JavaCompilerIDE.exe"
+        println "分发包: build/distributions/JavaCompilerIDE-${version}-with-jdk.zip"
+    }
+}
